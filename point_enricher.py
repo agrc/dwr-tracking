@@ -2,6 +2,8 @@ from datetime import timedelta
 from datetime import datetime as dt
 import time
 import logging
+import logging.handlers
+import google.cloud.logging
 import sys
 import arcpy
 
@@ -56,6 +58,13 @@ def get_enriched_points(querylayer_points, enrichment_data, fields_to_keep):
     target_features = querylayer_points
     target_describe = arcpy.Describe(target_features)
     join_output = r"in_memory\spatial_join"
+    temp_out_name = join_output
+    n = 1
+    while arcpy.Exists(temp_out_name):
+        temp_out_name = join_output + str(n)
+        n += 1
+    join_output = temp_out_name
+
 
     log.info('Enriching {} with {}'.format(join_describe.name, target_describe.name))
     log.debug('Keep fields: {}'.format(','.join(fields_to_keep)))
@@ -96,6 +105,33 @@ def get_enriched_points(querylayer_points, enrichment_data, fields_to_keep):
     arcpy.DeleteField_management(join_output, ["Join_Count", "TARGET_FID"])
 
     return join_output
+
+
+def mutliple_enrichment(querylayer_points, enrichment_features, fields_to_keep):
+    """Enrich points with fields from list of feature classes."""
+    
+    # Check for fields that exist in multiple features. Join process will only use first field.
+    field_names = []
+    field_names.extend([f.name.lower() for f in arcpy.ListFields(querylayer_points)])
+    for feature in enrichment_features:
+        field_names.extend([f.name.lower() for f in arcpy.ListFields(feature)])
+    for field in fields_to_keep:
+        f_count = field_names.count(field.lower())
+        if f_count > 1:
+            log.warn('Field in multiple features: field={}, count={}'.format(field, f_count))
+    
+    enriched = querylayer_points
+    for feature in enrichment_features:
+        old_enriched = enriched
+        enriched = get_enriched_points(
+            enriched,
+            feature,
+            fields_to_keep)
+        arcpy.Delete_management(old_enriched)
+    
+    return enriched
+
+
 
 def full_landowner_enrich():
     start_date = "2002-02-01 12:00:00"
@@ -156,14 +192,28 @@ def _setup_logging():
     log_name = 'enricher'
     log = logging.getLogger(log_name)
     log.setLevel(logging.DEBUG)
-    log_formatter = logging.Formatter(fmt='%(message)s')
+    log_formatter = logging.Formatter(fmt='%(levelname)s: %(message)s')
     log.logThreads = 0
     log.logProcesses = 0
 
+    client = google.cloud.logging.Client.from_service_account_json('../.keys/python-logging.json')
+    sd_formatter = logging.Formatter(fmt='%(filename)s: %(message)s')
+    sd_handler = client.get_default_handler()
+    sd_handler.setFormatter(sd_formatter)
+    sd_handler.setLevel(logging.ERROR)
+    log.addHandler(sd_handler)
+
+    file_handler = logging.handlers.RotatingFileHandler('enricher.log', backupCount=7)
+    file_handler.doRollover()
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(log_formatter)
+
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG)
+    console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(log_formatter)
+    
     log.addHandler(console_handler)
+    log.addHandler(file_handler)
 
     return log_name
 
@@ -184,13 +234,14 @@ if __name__ == '__main__':
     ql_count = arcpy.management.GetCount(ql_name)[0]
     log.info('Query layer point count: {}'.format(ql_count))
 
-    enriched = get_enriched_points(
+    enriched = mutliple_enrichment(
         ql_name,
-        r'C:\giswork\bqtest\DistrictCombinationAreas2012.gdb\DistrictCombinationAreas2012_wgs84',
-        ['Congress', 'Senate', 'House', 'CollarSerialNum'])
+        [r'C:\giswork\bqtest\DistrictCombinationAreas2012.gdb\DistrictCombinationAreas2012_wgs84',
+         r'C:\giswork\vista\address_check2018\Counties.gdb\Counties'],
+        ['Congress', 'Senate', 'House', 'CollarSerialNum', 'Latitude', 'POP_LASTCENSUS'])
     
     arcpy.management.CopyFeatures(enriched, r'C:\giswork\temp\geotab_sample.gdb\winnerwinner')
     arcpy.Delete_management(enriched)
     
-
+    log.error('kaboom!!!')
     logging.shutdown()
