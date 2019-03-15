@@ -1,0 +1,15 @@
+[
+    {
+        "fields": [
+            "AGENCY",
+            "OWNER"
+        ],
+        "path": "C:\\Users\\kwalker\\AppData\\Roaming\\ESRI\\Desktop10.4\\ArcCatalog\\Connection to sgid.agrc.utah.gov.sde\\SGID10.CADASTRE.LandOwnership"
+    },
+    {
+        "fields": [
+            "AGENCY_L"
+        ],
+        "path": "C:\\giswork\\temp\\testdata.gdb\\landerownership_local"
+    }
+]

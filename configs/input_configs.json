@@ -1,0 +1,11 @@
+{
+    "__input_config__": "",
+    "collars_keep_fields": [
+        "CollarSerialNum"
+    ],
+    "collars_table": "CollarTest.COLLARADMIN.Collars",
+    "date_field": "DateYearAndJulian",
+    "output_feature": "enriched_points",
+    "output_gdb": "C:\\giswork\\temp\\geotab_sample.gdb",
+    "workspace": "C:\\Users\\kwalker\\AppData\\Roaming\\ESRI\\Desktop10.4\\ArcCatalog\\CollarTest as CollarAdmin.sde"
+}

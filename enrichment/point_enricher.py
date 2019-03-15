@@ -1,4 +1,5 @@
 import datetime
+import json
 from datetime import timedelta
 from datetime import datetime as dt
 import time
@@ -22,13 +23,80 @@ VERSION = '1.0.0'
 
 SD_LOG_NAME = 'python.scheduled'
 LABELS = {'file': basename(__file__), 'version': VERSION}
-CLOUD_LOGGING = False
+SD_LOGGING_KEY = '../.keys/python-logging.json'
+CLOUD_LOGGING = True
+
+class Config(object):
+    """Configs for script inputs and outputs."""
+    json_type_key = '__input_config__'
+
+    def __init__(
+        self,
+        workspace, 
+        collars_table, 
+        collars_keep_fields, 
+        date_field,   
+        output_gdb, 
+        output_feature):
+        
+        self.workspace = workspace
+        self.collars_table = collars_table
+        self.collars_keep_fields = collars_keep_fields
+        self.date_field = date_field
+        self.output_gdb = output_gdb
+        self.output_feature = output_feature
+    
+    @staticmethod
+    def decode_config(dct):
+        """Decode config from json."""
+        if  Config.json_type_key in dct:
+            configs = Config(
+                dct['workspace'], 
+                dct['collars_table'], 
+                dct['collars_keep_fields'], 
+                dct['date_field'],   
+                dct['output_gdb'], 
+                dct['output_feature'])
+            return configs
+        else:
+            return dct
+    
+    @staticmethod
+    def encode_config(config):
+        """Encode config to json."""
+        if isinstance(config, Config):
+            field_dict = config.__dict__
+            field_dict[Config.json_type_key] = ''
+            return field_dict
+        else:
+            type_name = config.__class__.__name__
+            raise TypeError('Object of type {} is not JSON serializable'.format(type_name))
+
 
 class EnrichmentData(object):
-
+    """Features used for point enrichment."""
     def __init__(self, path, fields):
         self.path = path
         self.fields = fields
+    
+    @staticmethod
+    def decode_enrichment(dct):
+        """Decode enrichment data feature from json."""
+        if 'path' in dct and 'fields' in dct:
+            return EnrichmentData(dct['path'], dct['fields'])
+        else:
+            return dct
+    
+    @staticmethod
+    def encode_enrichment(enrichment):
+        """Encode enrichment data feature to json."""
+        if isinstance(enrichment, EnrichmentData):
+            field_dict = enrichment.__dict__
+            return field_dict
+        else:
+            type_name = enrichment.__class__.__name__
+            raise TypeError('Object of type {} is not JSON serializable'.format(type_name))
+
 
 
 
@@ -79,6 +147,7 @@ def get_querylayer_for_yesterday(workspace, table_name, keep_fields, date_field,
 
 
 def get_enriched_points(querylayer_points, enrichment_data, fields_to_keep):
+    """Join points to enrichment feature and keep specified fields"""
     #defining features for the spatial join
     join_features = enrichment_data
     join_describe = arcpy.Describe(join_features)
@@ -289,13 +358,14 @@ def multi_log(msg, severity, cloud_logging=False, cloud_struct=None, use_global_
         
         cl.log_struct(
             struct,
-            log_name=SD_LOG,
+            log_name=SD_LOG_URL,
             timestamp=time_stamp,
             labels=LABELS,
             severity=sd_serverities[severity])
 
 
 def _setup_logging():
+    """Setup local logging."""
     log_name = 'enricher'
     log = logging.getLogger(log_name)
     log.setLevel(logging.DEBUG)
@@ -319,7 +389,8 @@ def _setup_logging():
 
 
 def _setup_stackdriver():
-    client = google.cloud.logging.Client.from_service_account_json('../.keys/python-logging.json')
+    """Setup logging to stackdriver."""
+    client = google.cloud.logging.Client.from_service_account_json(SD_LOGGING_KEY)
     cloud_logger = client.logger(SD_LOG_NAME)
     log_name = 'projects/{project}/logs/{sd_name}'.format(
         project=client.project,
@@ -327,38 +398,45 @@ def _setup_stackdriver():
 
     return cloud_logger, log_name
 
+def _get_config(config_location):
+    """Get input and output configs from json."""
+    with open(config_location, 'r') as json_file:
+        configs = json.load(json_file, object_hook=Config.decode_config)
+
+    return configs
+
+def _get_enrichment_data(config_location):
+    enrichment_data = []
+    with open(config_location, 'r') as json_file:
+        enrichment_data = json.load(json_file, object_hook=EnrichmentData.decode_enrichment)
+
+    return enrichment_data
+
+
+
 
 if __name__ == '__main__':
-    workspace = r'C:\Users\kwalker\AppData\Roaming\ESRI\Desktop10.4\ArcCatalog\CollarTest as CollarAdmin.sde'
-    collars_table = 'CollarTest.COLLARADMIN.Collars'
-    collars_keep_fields = ['CollarSerialNum']
-    date_field = 'DateYearAndJulian'
-    
-    output_gdb = r'C:\giswork\temp\geotab_sample.gdb'
-    output_feature = r'enriched_points'
+    input_config_location = 'configs/input_configs.json'
+    enrichment_config_location = 'configs/enrichment_data.json'
 
-    enrichment_features = [
-        EnrichmentData(
-            r'C:\Users\kwalker\AppData\Roaming\ESRI\Desktop10.4\ArcCatalog\Connection to sgid.agrc.utah.gov.sde\SGID10.CADASTRE.LandOwnership',
-            ['AGENCY', 'OWNER']),
-        EnrichmentData(
-            r'C:\giswork\temp\testdata.gdb\landerownership_local',
-            ['AGENCY_L'])
-    ]
+    configs = _get_config(input_config_location)
+
+    enrichment_features = _get_enrichment_data(enrichment_config_location)
 
     log_name = _setup_logging()
     global log
     log = logging.getLogger(log_name)
 
     global cloud_log
-    global SD_LOG
-    cloud_log, SD_LOG = _setup_stackdriver()
+    global SD_LOG_URL
+    cloud_log, SD_LOG_URL = _setup_stackdriver()
+    
     try:
         ql_name = get_querylayer_for_yesterday(
-            workspace,
-            collars_table,
-            collars_keep_fields,
-            date_field,
+            configs.workspace,
+            configs.collars_table,
+            configs.collars_keep_fields,
+            configs.date_field,
             dt.strptime('2017-07-18', "%Y-%m-%d"))
         ql_count = arcpy.management.GetCount(ql_name)[0]
         multi_log(
@@ -366,19 +444,18 @@ if __name__ == '__main__':
             'INFO',
             CLOUD_LOGGING,
             {'action': 'ql count',
-            'feature': collars_table,
+            'feature': configs.collars_table,
             'count': ql_count})
         
         # Query Layers don't spatially join correctly and won't copy to in_memory
-        points_feature = arcpy.management.CopyFeatures(ql_name, join(output_gdb, output_feature))[0]
+        points_feature = arcpy.management.CopyFeatures(ql_name, join(configs.output_gdb, configs.output_feature))[0]
         enriched = mutliple_enrichment(
             points_feature,
-            collars_keep_fields,
+            configs.collars_keep_fields,
             enrichment_features)
         
-        arcpy.management.CopyFeatures(enriched, join(output_gdb, output_feature))
+        arcpy.management.CopyFeatures(enriched, join(configs.output_gdb, configs.output_feature))
         arcpy.Delete_management(enriched)
-        1/0
     except Exception as e:
         multi_log(
             e,
