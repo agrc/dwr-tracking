@@ -9,6 +9,7 @@ import google.cloud.logging
 import sys
 import traceback
 import arcpy
+import os
 from os.path import basename
 from os.path import join
 import multilog
@@ -25,7 +26,7 @@ LOCAL_LOGS = '../logs/enricher.log'
 
 SD_LOG_NAME = 'python.scheduled'
 LABELS = {'file': basename(__file__), 'version': VERSION}
-SD_LOGGING_KEY = '../../.keys/python-logging.json'
+SD_LOGGING_KEY = '../.secrets/python-logging.json'
 CLOUD_LOGGING = False
 
 class Config(object):
@@ -332,6 +333,10 @@ def _get_enrichment_data(config_location):
 
 
 if __name__ == '__main__':
+    # Set directory to the directory of this file.
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    os.chdir(dir_path)
+    
     input_config_location = '../configs/point_enrichment_input.json'
     enrichment_config_location = '../configs/point_enrichment_data.json'
 

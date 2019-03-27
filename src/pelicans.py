@@ -14,7 +14,7 @@ LOCAL_LOGS = '../logs/{}.log'.format(LOCAL_LOG_NAME)
 
 SD_LOG_NAME = 'python.scheduled'
 LABELS = {'file': os.path.basename(__file__), 'version': VERSION}
-SD_LOGGING_KEY = '../../.keys/python-logging.json'
+SD_LOGGING_KEY = '../.secrets/python-logging.json'
 CLOUD_LOGGING = True
 
 DEFAULT_BEGIN_DATE = datetime.datetime(2019,3,25).replace(tzinfo=utc)
@@ -158,6 +158,9 @@ def _get_secrets(secrets_location):
 
 if __name__ == '__main__':
     import glob
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    os.chdir(dir_path)
+    
     input_config_location = '../configs/pelican_input.json'
 
     try:
