@@ -1,0 +1,6 @@
+{
+    "__input_config__": "",
+    "output_folder": "../data/pelican-data",
+    "output_csv_prefix": "pelican_export-",
+    "secrets_location": "../.secrets/pelican_secrets.json"
+}

@@ -11,6 +11,7 @@ import traceback
 import arcpy
 from os.path import basename
 from os.path import join
+import multilog
 
 
 arcpy.env.workspace = "in_memory"  
@@ -20,11 +21,12 @@ arcpy.env.preserveGlobalIds = True
 
 VERSION = '1.0.0'
 
+LOCAL_LOGS = '../logs/enricher.log'
 
 SD_LOG_NAME = 'python.scheduled'
 LABELS = {'file': basename(__file__), 'version': VERSION}
-SD_LOGGING_KEY = '../.keys/python-logging.json'
-CLOUD_LOGGING = True
+SD_LOGGING_KEY = '../../.keys/python-logging.json'
+CLOUD_LOGGING = False
 
 class Config(object):
     """Configs for script inputs and outputs."""
@@ -111,7 +113,7 @@ def get_querylayer_for_yesterday(workspace, table_name, keep_fields, date_field,
     start_day_string = dt.strftime(start_of_day, "%Y-%m-%d %H:%M:%S")
     end_of_day = start_of_day + timedelta(days=1)
     end_day_string = dt.strftime(end_of_day, "%Y-%m-%d %H:%M:%S")
-    multi_log('Making query layer for {}. Date range: {} to {}'.format(
+    logger.multi_log('Making query layer for {}. Date range: {} to {}'.format(
         table_name,
         start_day_string, 
         end_day_string),
@@ -136,7 +138,7 @@ def get_querylayer_for_yesterday(workspace, table_name, keep_fields, date_field,
     arcpy.MakeQueryLayer_management(
         workspace, ql_name, where_clause)
     ql_time = round(time.time() - ql_start_time, 4)
-    multi_log('Query Layer creation time: {} seconds'.format(ql_time),
+    logger.multi_log('Query Layer creation time: {} seconds'.format(ql_time),
               'INFO',
               CLOUD_LOGGING,
               {'action': 'ql creation',
@@ -162,14 +164,14 @@ def get_enriched_points(querylayer_points, enrichment_data, fields_to_keep):
     join_output = temp_out_name
 
 
-    multi_log(
+    logger.multi_log(
         'Enriching {} with {}'.format(target_describe.name, join_describe.name),
         'INFO',
         CLOUD_LOGGING)
-    multi_log('Keep fields: {}'.format(','.join(fields_to_keep)), 'DEBUG')
+    logger.multi_log('Keep fields: {}'.format(','.join(fields_to_keep)), 'DEBUG')
 
     if join_describe.spatialReference.name != target_describe.spatialReference.name:
-        multi_log(
+        logger.multi_log(
             'Spatial reference mismatch: join={}, target={}'.format(
                 target_describe.spatialReference.name,
                 join_describe.spatialReference.name),
@@ -188,7 +190,7 @@ def get_enriched_points(querylayer_points, enrichment_data, fields_to_keep):
     mapped_field_names = set([f.name.lower() for f in fieldmappings.fields])
     field_intersect = keep_fields.intersection(mapped_field_names)
     if field_intersect != keep_fields:
-        multi_log(
+        logger.multi_log(
             'Keep fields not in either dataset: {}'.format(','.join(keep_fields - field_intersect)),
             'WARNING')
 
@@ -205,7 +207,7 @@ def get_enriched_points(querylayer_points, enrichment_data, fields_to_keep):
         "KEEP_ALL",
         fieldmappings)
     join_time = round(time.time() - join_start_time, 4)
-    multi_log(
+    logger.multi_log(
         'Join processing time: {} seconds'.format(join_time),
         'INFO',
         CLOUD_LOGGING,
@@ -227,7 +229,7 @@ def _report_field_name_duplication(paths, fields_to_keep):
     for field in fields_to_keep:
         f_count = field_names.count(field.lower())
         if f_count > 1:
-            multi_log(
+            logger.multi_log(
                 'Field in multiple features: field={}, count={}'.format(field, f_count),
                 'WARNING')
     
@@ -305,98 +307,12 @@ def full_landowner_enrich():
         #appending the spatial join output to the master table of enriched points
         arcpy.Append_management(r"spatial_join", r"H:\enrichedPoints.gdb\enrichedPoints", "NO_TEST")
 
-
         arcpy.Delete_management(r"in_memory\spatial_join")
 
         #adding time to the start and stop date to pickup where it left off
         start = stop + timedelta(minutes=1)
         stop = stop + timedelta(days=30)
 
-def multi_log(msg, severity, cloud_logging=False, cloud_struct=None, use_global_loggers=True, log_name=None, cloud_logger=None):
-    """Log to the Python logger and StackDriver struct logger."""
-    time_stamp = dt.utcnow()
-    
-    l = None
-    if use_global_loggers:
-        l = log
-    else:
-        l = logging.getLogger('log_name')
-   
-    log_methods = {
-        'DEBUG': l.debug,
-        'INFO': l.info,
-        'WARNING': l.warn,
-        'ERROR': l.error,
-        'CRITICAL': l.critical,
-    }
-
-    severity = severity.upper()
-    if severity not in log_methods:
-        severity = 'INFO'
-    log_exec = False
-    if isinstance(msg, Exception):
-        log_exec = True
-    log_methods[severity](msg, exc_info=log_exec)
-    
-    sd_serverities = {
-        'DEBUG': 'DEBUG',
-        'INFO': 'INFO',
-        'WARNING': 'WARNING',
-        'ERROR': 'ERROR',
-        'CRITICAL': 'CRITICAL',
-    }
-    if cloud_logging:
-        cl = None
-        if use_global_loggers:
-            cl = cloud_log
-        else:
-            cl = cloud_logger
-
-        struct = {'message': str(msg)}
-        if cloud_struct:
-            struct = {**struct, **cloud_struct}
-        
-        cl.log_struct(
-            struct,
-            log_name=SD_LOG_URL,
-            timestamp=time_stamp,
-            labels=LABELS,
-            severity=sd_serverities[severity])
-
-
-def _setup_logging():
-    """Setup local logging."""
-    log_name = 'enricher'
-    log = logging.getLogger(log_name)
-    log.setLevel(logging.DEBUG)
-    log_formatter = logging.Formatter(fmt='%(levelname)s: %(message)s')
-    log.logThreads = 0
-    log.logProcesses = 0
-
-    file_handler = logging.handlers.RotatingFileHandler('logs/enricher.log', backupCount=7)
-    file_handler.doRollover()
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(log_formatter)
-
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(log_formatter)
-    
-    log.addHandler(console_handler)
-    log.addHandler(file_handler)
-
-    return log_name
-
-
-def _setup_stackdriver():
-    """Setup logging to stackdriver."""
-    client = google.cloud.logging.Client.from_service_account_json(SD_LOGGING_KEY)
-    cloud_logger = client.logger(SD_LOG_NAME)
-    log_name = 'projects/{project}/logs/{sd_name}'.format(
-        project=client.project,
-        sd_name=SD_LOG_NAME)
-
-    return cloud_logger, log_name
 
 def _get_config(config_location):
     """Get input and output configs from json."""
@@ -416,20 +332,14 @@ def _get_enrichment_data(config_location):
 
 
 if __name__ == '__main__':
-    input_config_location = 'configs/input_configs.json'
-    enrichment_config_location = 'configs/enrichment_data.json'
+    input_config_location = '../configs/point_enrichment_input.json'
+    enrichment_config_location = '../configs/point_enrichment_data.json'
 
     configs = _get_config(input_config_location)
 
     enrichment_features = _get_enrichment_data(enrichment_config_location)
 
-    log_name = _setup_logging()
-    global log
-    log = logging.getLogger(log_name)
-
-    global cloud_log
-    global SD_LOG_URL
-    cloud_log, SD_LOG_URL = _setup_stackdriver()
+    logger = multilog.MutliLogger('enricher', LOCAL_LOGS, SD_LOGGING_KEY, SD_LOG_NAME, LABELS)
     
     try:
         ql_name = get_querylayer_for_yesterday(
@@ -439,7 +349,7 @@ if __name__ == '__main__':
             configs.date_field,
             dt.strptime('2017-07-18', "%Y-%m-%d"))
         ql_count = arcpy.management.GetCount(ql_name)[0]
-        multi_log(
+        logger.multi_log(
             'Query layer point count: {}'.format(ql_count),
             'INFO',
             CLOUD_LOGGING,
@@ -457,7 +367,7 @@ if __name__ == '__main__':
         arcpy.management.CopyFeatures(enriched, join(configs.output_gdb, configs.output_feature))
         arcpy.Delete_management(enriched)
     except Exception as e:
-        multi_log(
+        logger.multi_log(
             e,
             'ERROR',
             CLOUD_LOGGING)
