@@ -54,4 +54,4 @@ __pycache__
 # Project
 data/
 logs/
-.secrets/
+.secrets/*.json

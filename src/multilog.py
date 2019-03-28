@@ -5,14 +5,17 @@ import sys
 import traceback
 from datetime import timedelta
 from datetime import datetime as dt
-from os.path import basename
+import os
 
 
 class MutliLogger(object):
     """Logging with multiple loggers."""
     
-    def __init__(self, log_name, log_file_location, sd_logging_key, sd_log_name, labels):
-        logging_name = self._setup_logging(log_name, log_file_location)
+    def __init__(self, log_name, log_file_directory, sd_logging_key, sd_log_name, labels):
+        if not os.path.exists(log_file_directory):
+            os.mkdir(os.path.dirname(log_file_directory))
+
+        logging_name = self._setup_logging(log_name, log_file_directory)
         self.log_name = logging_name
         self.log = logging.getLogger(self.log_name)
         cloud_logger, sd_log_url = self._setup_stackdriver(sd_logging_key, sd_log_name)
@@ -63,7 +66,7 @@ class MutliLogger(object):
                 severity=sd_serverities[severity])
 
 
-    def _setup_logging(self, log_name, log_file_location):
+    def _setup_logging(self, log_name, log_file_directory):
         """Setup local logging."""
         log_name = 'enricher'
         log = logging.getLogger(log_name)
@@ -72,7 +75,7 @@ class MutliLogger(object):
         log.logThreads = 0
         log.logProcesses = 0
 
-        file_handler = logging.handlers.RotatingFileHandler(log_file_location, backupCount=7)
+        file_handler = logging.handlers.RotatingFileHandler(log_file_directory, backupCount=7)
         file_handler.doRollover()
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(log_formatter)
