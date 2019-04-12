@@ -37,17 +37,17 @@ class Config(object):
         self,
         workspace, 
         collars_table, 
-        collars_keep_fields, 
         date_field,   
-        output_gdb, 
-        output_feature):
+        globalid_field,
+        related_guid_field,
+        output_table):
         
         self.workspace = workspace
         self.collars_table = collars_table
-        self.collars_keep_fields = collars_keep_fields
         self.date_field = date_field
-        self.output_gdb = output_gdb
-        self.output_feature = output_feature
+        self.globalid_field = globalid_field
+        self.related_guid_field = related_guid_field
+        self.output_table = output_table
     
     @staticmethod
     def decode_config(dct):
@@ -56,10 +56,10 @@ class Config(object):
             configs = Config(
                 dct['workspace'], 
                 dct['collars_table'], 
-                dct['collars_keep_fields'], 
-                dct['date_field'],   
-                dct['output_gdb'], 
-                dct['output_feature'])
+                dct['date_field'], 
+                dct['globalid_field'],   
+                dct['related_guid_field'], 
+                dct['output_table'])
             return configs
         else:
             return dct
@@ -78,15 +78,15 @@ class Config(object):
 
 class EnrichmentData(object):
     """Features used for point enrichment."""
-    def __init__(self, path, fields):
+    def __init__(self, path, field_mappings):
         self.path = path
-        self.fields = fields
+        self.field_mappings = field_mappings
     
     @staticmethod
     def decode_enrichment(dct):
         """Decode enrichment data feature from json."""
-        if 'path' in dct and 'fields' in dct:
-            return EnrichmentData(dct['path'], dct['fields'])
+        if 'path' in dct and 'field_mappings' in dct:
+            return EnrichmentData(dct['path'], dct['field_mappings'])
         else:
             return dct
     
@@ -101,9 +101,7 @@ class EnrichmentData(object):
             raise TypeError('Object of type {} is not JSON serializable'.format(type_name))
 
 
-
-
-def get_querylayer_for_yesterday(workspace, table_name, keep_fields, date_field, today=None):
+def get_querylayer_for_yesterday(workspace, table_name, guid_field, date_field, today=None):
     """Create a query layer that includes only data for the previous day."""
     if today is None:
         yesterday = dt.now() - timedelta(days=1)
@@ -128,7 +126,7 @@ def get_querylayer_for_yesterday(workspace, table_name, keep_fields, date_field,
     AND
     {field} < '{end}'
     """.format(
-        fields_list=','.join(keep_fields) + ', SHAPE',
+        fields_list=guid_field + ', SHAPE',
         table=table_name,
         field=date_field,
         start=start_day_string,
@@ -139,7 +137,7 @@ def get_querylayer_for_yesterday(workspace, table_name, keep_fields, date_field,
     arcpy.MakeQueryLayer_management(
         workspace, ql_name, where_clause)
     ql_time = round(time.time() - ql_start_time, 4)
-    logger.multi_log('Query Layer creation time: {} seconds'.format(ql_time),
+    logger.multi_log('Query layer creation time: {} seconds'.format(ql_time),
               'INFO',
               CLOUD_LOGGING,
               {'action': 'ql creation',
@@ -156,14 +154,13 @@ def get_enriched_points(querylayer_points, enrichment_data, fields_to_keep):
     join_describe = arcpy.Describe(join_features)
     target_features = querylayer_points
     target_describe = arcpy.Describe(target_features)
-    join_output = r"in_memory\spatial_join"
+    join_output = 'in_memory\\spatial_join'
     temp_out_name = join_output
     n = 1
     while arcpy.Exists(temp_out_name):
         temp_out_name = join_output + str(n)
         n += 1
     join_output = temp_out_name
-
 
     logger.multi_log(
         'Enriching {} with {}'.format(target_describe.name, join_describe.name),
@@ -202,7 +199,7 @@ def get_enriched_points(querylayer_points, enrichment_data, fields_to_keep):
 
     # Join datasets spatially
     join_start_time = time.time()
-    arcpy.SpatialJoin_analysis(
+    arcpy.analysis.SpatialJoin(
         target_features, join_features, join_output,
         "JOIN_ONE_TO_ONE",
         "KEEP_ALL",
@@ -222,35 +219,14 @@ def get_enriched_points(querylayer_points, enrichment_data, fields_to_keep):
 
     return join_output
 
-def _report_field_name_duplication(paths, fields_to_keep):
-    """Check for fields that exist in multiple features. Join process will only use first field."""
-    field_names = []
-    for feature in paths:
-        field_names.extend([f.name.lower() for f in arcpy.ListFields(feature)])
-    for field in fields_to_keep:
-        f_count = field_names.count(field.lower())
-        if f_count > 1:
-            logger.multi_log(
-                'Field in multiple features: field={}, count={}'.format(field, f_count),
-                'WARNING')
-    
 
-def mutliple_enrichment(querylayer_points, querylayer_fields, enrichment_features):
+def mutliple_enrichment(querylayer_points, globalid_field, enrichment_features):
     """Enrich points with fields from list of feature classes."""
-    paths = []
-    fields_to_keep = []
-    for feature in enrichment_features:
-        paths.append(feature.path)
-        fields_to_keep.extend(feature.fields)
-    paths.append(querylayer_points)
-    fields_to_keep.extend(querylayer_fields)
-    _report_field_name_duplication(paths, fields_to_keep)
-    
     enriched = querylayer_points
-    accumulated_fields = list(querylayer_fields)
+    accumulated_fields = [globalid_field]
     for feature in enrichment_features:
         old_enriched = enriched
-        accumulated_fields.extend(feature.fields)
+        accumulated_fields.extend([f[0] for f in feature.field_mappings])
         enriched = get_enriched_points(
             enriched,
             feature.path,
@@ -260,67 +236,13 @@ def mutliple_enrichment(querylayer_points, querylayer_fields, enrichment_feature
     return enriched
 
 
-def full_landowner_enrich():
-    start_date = "2002-02-01 12:00:00"
-    stop_date = "2002-03-01 12:00:00"
-    ending = "2004-06-01 12:00:00"
-
-
-    start = dt.strptime(start_date, "%Y-%m-%d %H:%M:%S")
-    stop = dt.strptime(stop_date, "%Y-%m-%d %H:%M:%S")
-    end = dt.strptime(ending, "%Y-%m-%d %H:%M:%S")
-    
-    while start < end:
-        print('Start', start, 'End', stop)
-
-        #where clause for the time range
-        where_clause = "select * from Collar.COLLARADMIN.Collars where DateYearAndJulian >=" + \
-            "'{}'".format(start) + " AND " + \
-            "DateYearAndJulian <=" + "'{}'".format(stop)
-
-        #query layer created from the clause
-        arcpy.MakeQueryLayer_management(
-            r"enrichedPoints\collar.agrc.utah.gov.sde", "date_query_result", where_clause)
-
-        #defining features for the spatial join
-        join_features = r"H:\enrichedPoints.gdb\SGID10_Landownership"
-        target_features = r"date_query_result"
-
-        #field map to determine which fields to keep
-        fieldmappings = arcpy.FieldMappings()
-        # Add all fields from inputs.
-        fieldmappings.addTable(join_features)
-        fieldmappings.addTable(target_features)
-
-        fields_sequence = ["OWNER",
-                        "ADMIN", "COUNTY", "GlobalID"]
-        for field in fieldmappings.fields:
-            if field.name not in fields_sequence:
-                fieldmappings.removeFieldMap(
-                    fieldmappings.findFieldMapIndex(field.name))
-
-        #joining the query layer with landownership and writing to in_memory
-        arcpy.SpatialJoin_analysis(target_features, join_features, r"in_memory\spatial_join", "JOIN_ONE_TO_ONE", "KEEP_ALL", fieldmappings)
-
-        #removing uneeded fields created from join
-        arcpy.DeleteField_management( r"spatial_join", ["Join_Count", "TARGET_FID"])
-
-        #appending the spatial join output to the master table of enriched points
-        arcpy.Append_management(r"spatial_join", r"H:\enrichedPoints.gdb\enrichedPoints", "NO_TEST")
-
-        arcpy.Delete_management(r"in_memory\spatial_join")
-
-        #adding time to the start and stop date to pickup where it left off
-        start = stop + timedelta(minutes=1)
-        stop = stop + timedelta(days=30)
-
-
 def _get_config(config_location):
     """Get input and output configs from json."""
     with open(config_location, 'r') as json_file:
         configs = json.load(json_file, object_hook=Config.decode_config)
 
     return configs
+
 
 def _get_enrichment_data(config_location):
     enrichment_data = []
@@ -330,6 +252,21 @@ def _get_enrichment_data(config_location):
     return enrichment_data
 
 
+def _load_data(enriched_points, destination_table, enrichment_features, globalid_field, related_guid_field):
+    logger.multi_log('Loading data into: ' + destination_table, 'INFO', CLOUD_LOGGING)
+    source_fields = []
+    destination_fields = []
+    for feature in enrichment_features:
+        for source, dest in feature.field_mappings:
+            source_fields.append(source)
+            destination_fields.append(dest)
+    source_fields.append(globalid_field)
+    destination_fields.append(related_guid_field)
+
+    with arcpy.da.SearchCursor(enriched_points, source_fields) as enriched_cursor, \
+        arcpy.da.InsertCursor(destination_table, destination_fields) as destination_cursor:
+        for row in enriched_cursor:
+            destination_cursor.insertRow(row)
 
 
 if __name__ == '__main__':
@@ -350,9 +287,8 @@ if __name__ == '__main__':
         ql_name = get_querylayer_for_yesterday(
             configs.workspace,
             configs.collars_table,
-            configs.collars_keep_fields,
-            configs.date_field,
-            dt.strptime('2017-07-18', "%Y-%m-%d"))
+            configs.globalid_field,
+            configs.date_field)
         ql_count = arcpy.management.GetCount(ql_name)[0]
         logger.multi_log(
             'Query layer point count: {}'.format(ql_count),
@@ -363,14 +299,25 @@ if __name__ == '__main__':
             'count': ql_count})
         
         # Query Layers don't spatially join correctly and won't copy to in_memory
-        points_feature = arcpy.management.CopyFeatures(ql_name, join(configs.output_gdb, configs.output_feature))[0]
+        output_gdb = join(dir_path, '..', 'data', 'enrichment_output.gdb')
+        if not arcpy.Exists(output_gdb):
+            arcpy.management.CreateFileGDB(os.path.dirname(output_gdb), os.path.basename(output_gdb))
+        
+        logger.multi_log('Copying query layer points locally', 'INFO', CLOUD_LOGGING)
+        points_feature = arcpy.management.CopyFeatures(ql_name, join(output_gdb, 'points'))[0]
+
         enriched = mutliple_enrichment(
             points_feature,
-            configs.collars_keep_fields,
+            configs.globalid_field,
             enrichment_features)
-        
-        arcpy.management.CopyFeatures(enriched, join(configs.output_gdb, configs.output_feature))
-        arcpy.Delete_management(enriched)
+
+        _load_data(
+            enriched,
+            join(configs.workspace, configs.output_table),
+            enrichment_features,
+            configs.globalid_field,
+            configs.related_guid_field)
+
     except Exception as e:
         logger.multi_log(
             e,

@@ -55,3 +55,4 @@ __pycache__
 data/
 logs/
 .secrets/*.json
+.vscode

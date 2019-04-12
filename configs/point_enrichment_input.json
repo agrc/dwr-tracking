@@ -1,11 +1,9 @@
 {
     "__input_config__": "",
-    "collars_keep_fields": [
-        "CollarSerialNum"
-    ],
-    "collars_table": "CollarTest.COLLARADMIN.Collars",
+    "collars_table": "Collar.COLLARADMIN.Collars",
     "date_field": "DateYearAndJulian",
-    "output_feature": "enriched_points",
-    "output_gdb": "C:\\giswork\\temp\\geotab_sample.gdb",
-    "workspace": "C:\\Users\\kwalker\\AppData\\Roaming\\ESRI\\Desktop10.4\\ArcCatalog\\CollarTest as CollarAdmin.sde"
+    "globalid_field": "GlobalID",
+    "related_guid_field": "Rel_Guid",
+    "output_table": "Collar.COLLARADMIN.Enriched_Collar_Data",
+    "workspace": "C:\\ScheduledTasks\\dwr-tracking\\data\\Collar as CollarEditor.sde"
 }

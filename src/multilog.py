@@ -12,7 +12,7 @@ class MutliLogger(object):
     """Logging with multiple loggers."""
     
     def __init__(self, log_name, log_file_directory, sd_logging_key, sd_log_name, labels):
-        if not os.path.exists(log_file_directory):
+        if not os.path.exists(os.path.dirname(log_file_directory)):
             os.mkdir(os.path.dirname(log_file_directory))
 
         logging_name = self._setup_logging(log_name, log_file_directory)
