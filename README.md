@@ -10,4 +10,5 @@ Folder to store scripts that pull data from various tracking services.
 
 - [pelicans.py](inputs/pelicans.py) Requests data from Cellular Tracking Technologies API used for tracking pelicans.
 
-
+## Logging
+Logs are pushed to [StackDriver](https://console.cloud.google.com/logs/viewer?authuser=1&project=agrc-admin&folder&organizationId&minLogLevel=0).
