@@ -27,7 +27,7 @@ LOCAL_LOGS = '../logs/enricher.log'
 SD_LOG_NAME = 'python.scheduled'
 LABELS = {'file': basename(__file__), 'version': VERSION}
 SD_LOGGING_KEY = '../.secrets/python-logging.json'
-CLOUD_LOGGING = False
+CLOUD_LOGGING = True
 
 class Config(object):
     """Configs for script inputs and outputs."""
