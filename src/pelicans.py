@@ -17,7 +17,7 @@ LABELS = {'file': os.path.basename(__file__), 'version': VERSION}
 SD_LOGGING_KEY = '../.secrets/python-logging.json'
 CLOUD_LOGGING = True
 
-DEFAULT_BEGIN_DATE = datetime.datetime(2019,3,25).replace(tzinfo=utc)
+DEFAULT_BEGIN_DATE = datetime.datetime(2018,1,1).replace(tzinfo=utc)
 
 
 class Config(object):
