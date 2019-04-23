@@ -76,7 +76,6 @@ class CttApiDownloadUtility:
         logger.multi_log(
             'posting payload: {:,} bytes'.format(len(payload)),
             'DEBUG')
-        begin = datetime.datetime.now()
         response = requests.post(self.ApiEndpoint, data=payload)
         response.raise_for_status()
         if response.status_code == 200:
@@ -169,6 +168,7 @@ if __name__ == '__main__':
 
         configs = _get_config(input_config_location)
         data_folder = configs.output_folder
+        json_file_path = os.path.join(data_folder, 'last_run_date.txt')
         
         # get the CTT API Token from secrets
         secrets = _get_secrets(configs.secrets_location)
@@ -190,22 +190,24 @@ if __name__ == '__main__':
         if os.path.exists(data_folder) is False:
             # directory does not exist - create it
             os.makedirs(data_folder)
-        else:
-            # get a list of previous data files
-            downloaded_filenames = glob.glob(os.path.join(data_folder, 'export-*.csv'))
-            if len(downloaded_filenames) > 0:
-                # if we have at least 1 data file, get the latest, and parse the date
-                latest_file = max(downloaded_filenames, key=os.path.getctime)
-                directory_name, filename = os.path.split(latest_file)
-                begin = datetime.datetime.strptime(filename, 'export-%Y-%m-%d_%H%M%S.csv').replace(tzinfo=utc)
+
+        date_format = '%Y-%m-%d_%H%M%S'
+        now = datetime.datetime.utcnow().replace(tzinfo=utc)
+
+        if os.path.exists(json_file_path):
+            with open(json_file_path, 'r') as json_file:
+                begin = datetime.datetime.strptime(json_file.read(), date_format).replace(tzinfo=utc)
+
+        with open(json_file_path, 'w') as json_file:
+            #: set data for next time
+            json_file.write(now.strftime(date_format))
 
         # begin the CSV export request
         csv_data = api.export(begin=begin)
 
         if csv_data is not None:
             # if there is new CSV data - save it to a file
-            now = datetime.datetime.utcnow().replace(tzinfo=utc)
-            filename = 'export-{}.csv'.format(now.strftime('%Y-%m-%d_%H%M%S'))
+            filename = 'export-{}.csv'.format(now.strftime(date_format))
             outfilename = os.path.join(data_folder, filename)
             with open(outfilename, 'w', newline='\n') as outFile:
                 outFile.write(csv_data)
